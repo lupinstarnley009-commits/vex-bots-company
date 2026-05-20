@@ -7,8 +7,8 @@ const axios = require('axios');
 const MENU_IMAGE = "https://i.ibb.co/4Z7Sf3q5/Chat-GPT-Image-May-8-2026-07-10-41-PM.png";
 
 module.exports = {
-    command: "allmenu",
-    alias: ["list", "commands"],
+    command: "allmenu2",
+    alias: ["list2", "commands2"],
     category: "system",
     description: "Display all commands with image + VEX UI",
 
