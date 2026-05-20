@@ -1,7 +1,8 @@
-// plugins/ping.js
+// plugins/ping.js – Wolfbot style with animated bar (VEX MD)
+const axios = require('axios');
 const translate = require('google-translate-api-x');
 
-// Generate a visual bar based on milliseconds
+// Generate bar based on milliseconds
 function getSpeedBar(ms) {
     let filled;
     if (ms <= 50) filled = 10;
@@ -14,81 +15,66 @@ function getSpeedBar(ms) {
     return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
-// Styles with unique react emojis
-const STYLES = {
-    harsh: {
-        react: "🪅",
-        header: "╭─⌈ *⛓️ VEX HARSH PING* ⌋\n│",
-        label: "⚡ LATENCY",
-        footer: "╰⊷ *HARSH MODE*"
-    },
-    normal: {
-        react: "🐑",
-        header: "╭─⌈ *📱 VEX PING* ⌋\n│",
-        label: "📡 LATENCY",
-        footer: "╰⊷ *NORMAL MODE*"
-    },
-    girl: {
-        react: "🥾",
-        header: "╭─⌈ *🌸 VEX CUTE PING* ⌋\n│",
-        label: "💕 LATENCY",
-        footer: "╰⊷ *GIRL MODE*"
+// Measure real ping (fast and reliable)
+async function measurePing() {
+    const start = Date.now();
+    try {
+        await axios.get('https://api.github.com', { timeout: 5000, headers: { 'User-Agent': 'VEX-MD' } });
+        return Date.now() - start;
+    } catch {
+        return 999;
     }
+}
+
+// Styles (reaction emojis only, but we also use them for the header icon)
+const STYLES = {
+    harsh: { react: "🪅", icon: "⚡" },
+    normal: { react: "🐑", icon: "📡" },
+    girl: { react: "🥾", icon: "🌸" }
 };
 
 module.exports = {
     command: "ping",
     alias: ["latency", "speed"],
     category: "system",
-    description: "Real-time ping with 10‑second animated bar (single message)",
+    description: "Wolfbot‑style real‑time animated ping (10 seconds)",
 
     async execute(m, sock, { args, userSettings }) {
         const lang = args[0]?.length === 2 ? args[0] : (userSettings?.lang || 'en');
         const style = userSettings?.style || 'normal';
         const ui = STYLES[style] || STYLES.normal;
 
-        // Send initial reaction
+        // React with style emoji
         await sock.sendMessage(m.chat, { react: { text: ui.react, key: m.key } });
-
-        // If silent mode, only react
         if (userSettings?.silent === true) return;
 
-        // Send the initial message (will be edited 10 times)
-        const start = Date.now();
-        let intervalId;
-        let step = 0;
-        const totalSteps = 10; // 10 updates = 10 seconds
+        // Bot name (localised)
+        let botName = "VEX MD";
+        if (lang !== 'en') {
+            try {
+                const tr = await translate(botName, { to: lang });
+                botName = tr.text;
+            } catch {}
+        }
 
-        const sendUpdate = async (key, elapsedMs) => {
-            const currentMs = elapsedMs;
-            const bar = getSpeedBar(currentMs);
-            let text = `${ui.header}\n`;
-            text += `│ > ${ui.label}: ${currentMs} ms [${bar}]\n`;
-            text += `│ > Duration: ${step+1}/10 sec\n`;
-            text += `│\n${ui.footer}`;
-
-            // Translate if needed
-            if (lang !== 'en') {
-                try {
-                    const tr = await translate(text, { to: lang });
-                    text = tr.text;
-                } catch {}
-            }
-            await sock.sendMessage(m.chat, { text, edit: key });
-        };
-
-        const initialMsg = await sock.sendMessage(m.chat, { text: "⏳ Measuring ping..." });
+        // Send initial message with Wolfbot‑style box
+        const initialMsg = await sock.sendMessage(m.chat, { text: `╭─⌈ ${ui.icon} *${botName}* ⌋\n│ 0ms [░░░░░░░░░░]\n╰⊷ *${botName}*` });
         const msgKey = initialMsg.key;
 
-        intervalId = setInterval(async () => {
-            const elapsed = Date.now() - start;
+        let step = 0;
+        const totalSteps = 10; // 10 seconds
+
+        const update = async () => {
+            const ping = await measurePing();
+            const bar = getSpeedBar(ping);
+            const text = `╭─⌈ ${ui.icon} *${botName}* ⌋\n│ ${ping}ms [${bar}]\n╰⊷ *${botName}*`;
+            await sock.sendMessage(m.chat, { text, edit: msgKey });
             step++;
-            await sendUpdate(msgKey, elapsed);
-            if (step >= totalSteps) {
-                clearInterval(intervalId);
-                // Final update (keeps the bar as is, no extra message)
-                await sendUpdate(msgKey, elapsed);
+            if (step < totalSteps) {
+                setTimeout(update, 1000);
             }
-        }, 1000);
+        };
+
+        update(); // start animation
     }
 };
