@@ -4,396 +4,212 @@ const fs = require('fs');
 const path = require('path');
 const translate = require('google-translate-api-x');
 
-const sessionCache = new Map();
+// Session store: { userId: { step, results, selectedVideo, temp } }
+const userSessions = new Map();
 
 module.exports = {
     command: "video",
     alias: ["playvideo", "youtube", "ytv"],
     category: "download",
-    description: "Advanced YouTube Search + MP3/MP4 Downloader",
+    description: "Search YouTube and download MP3/MP4 with dual selection (reply or prefix+number)",
 
     async execute(m, sock, { args, userSettings }) {
-
         const lang = userSettings?.lang || 'en';
         const style = userSettings?.style || 'harsh';
+        const prefix = userSettings?.prefix || '.';
+        const sender = m.sender;
+        const chat = m.chat;
 
-        const modes = {
+        const styles = {
             harsh: {
                 title: "⛓️ 𝖁𝕰𝖃 𝖁𝕴𝕯𝕰𝕺 𝕯𝕰𝕾𝕿𝕽𝕺𝖄𝕰𝕽 ⛓️",
-                msg: "𝕮𝖍𝖔𝖔𝖘𝖊 𝖆 𝖓𝖚𝖒𝖇𝖊𝖗 ⚡",
-                format: "𝕹𝖔𝖜 𝖈𝖍𝖔𝖔𝖘𝖊:\n1. MP3 🎧\n2. MP4 🎬",
-                react: "🦾",
+                searchMsg: "🔍 𝕾𝖊𝖆𝖗𝖈𝖍𝖎𝖓𝖌...",
+                listHeader: "📋 𝖁𝕴𝕯𝕰𝕺 𝕽𝕰𝕾𝖀𝕷𝕿𝕾",
+                formatPrompt: "⚡ 𝖁𝕰𝖃 𝕱𝕺𝕽𝕸𝕬𝕿:\n1. MP3 🎧\n2. MP4 🎬",
                 downloading: "📥 𝕯𝖔𝖜𝖓𝖑𝖔𝖆𝖉𝖎𝖓𝖌... ⚙️",
-                err: "💢 𝕿𝖞𝖕𝖊 𝖆 𝖛𝖎𝖉𝖊𝖔 𝖓𝖆𝖒𝖊 🤬"
+                react: "🦾",
+                err: "💢 𝕿𝖞𝖕𝖊 𝖆 𝖛𝖎𝖉𝖊𝖔 𝖓𝖆𝖒𝖊 𝖔𝖗 𝖓𝖚𝖒𝖇𝖊𝖗 🤬",
+                successAudio: "🎧 𝕬𝖚𝖉𝖎𝖔 𝖗𝖊𝖆𝖉𝖞!",
+                successVideo: "🎬 𝖁𝖎𝖉𝖊𝖔 𝖗𝖊𝖆𝖉𝖞!"
             },
             normal: {
-                title: "🎥 Video Inspector 🎥",
-                msg: "Choose a number below",
-                format: "Choose format:\n1. MP3\n2. MP4",
-                react: "🛰️",
-                downloading: "📥 Downloading...",
-                err: "❌ Enter video name"
+                title: "🎥 YouTube Downloader",
+                searchMsg: "🔍 Searching...",
+                listHeader: "📋 Search Results",
+                formatPrompt: "Select format:\n1. MP3 (Audio)\n2. MP4 (Video)",
+                downloading: "📥 Downloading, please wait...",
+                react: "🎥",
+                err: "❌ Please provide a video name or number",
+                successAudio: "✅ Audio sent!",
+                successVideo: "✅ Video sent!"
             },
             girl: {
                 title: "🎀 𝒴𝑜𝓊𝒯𝓊𝒷𝑒 𝒮𝓌𝑒𝑒𝓉𝒾𝑒 🎀",
-                msg: "𝓈𝑒𝓁𝑒𝒸𝓉 𝓎𝑜𝓊𝓇 𝓋𝒾𝒹𝑒𝑜 💖",
-                format: "𝒸𝒽𝑜𝑜𝓈𝑒:\n1. MP3 🎶\n2. MP4 🎥",
-                react: "💎",
-                downloading: "📥 𝒹𝑜𝓌𝓃𝓁𝑜𝒶𝒹𝒾𝓃𝑔... ✨",
-                err: "🌸 𝓌𝒽𝒶𝓉 𝓋𝒾𝒹𝑒𝑜 𝒹𝑜 𝓎𝑜𝓊 𝓌𝒶𝓃𝓉?"
+                searchMsg: "🔍 𝐿𝑜𝑜𝓀𝒾𝓃𝑔 𝒻𝑜𝓇 𝓎𝑜𝓊𝓇 𝓋𝒾𝒹𝑒𝑜... 💕",
+                listHeader: "✨ ℱ𝑜𝓊𝓃𝒹 𝓉𝒽𝑒𝓈𝑒 𝓋𝒾𝒹𝑒𝑜𝓈 ✨",
+                formatPrompt: "𝒞𝒽𝑜𝑜𝓈𝑒 𝒻𝑜𝓇𝓂𝒶𝓉:\n1. MP3 🎶\n2. MP4 🎥",
+                downloading: "📥 𝒹𝑜𝓌𝓃𝓁𝑜𝒶𝒹𝒾𝓃𝑔 𝒻𝑜𝓇 𝓎𝑜𝓊... ✨",
+                react: "💖",
+                err: "🌸 𝓌𝒽𝒶𝓉 𝓈𝒽𝑜𝓊𝓁𝒹 𝐼 𝓈𝑒𝒶𝓇𝒸𝒽?",
+                successAudio: "🎶 𝐻𝑒𝓇𝑒'𝓈 𝓎𝑜𝓊𝓇 𝓈𝑜𝓃𝑔~",
+                successVideo: "🎬 𝒲𝒶𝓉𝒸𝒽 𝓉𝒽𝒾𝓈, 𝒷𝒶𝒷𝑒~"
             }
         };
-
-        const current = modes[style] || modes.normal;
+        const current = styles[style] || styles.normal;
 
         const tmpDir = './tmp';
-
-        if (!fs.existsSync(tmpDir)) {
-            fs.mkdirSync(tmpDir, { recursive: true });
-        }
+        if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
         let cleanupFiles = [];
-
-        const addCleanup = (file) => cleanupFiles.push(file);
-
+        const addCleanup = (f) => cleanupFiles.push(f);
         const cleanup = async () => {
-            for (const file of cleanupFiles) {
-                try {
-                    if (fs.existsSync(file)) {
-                        await fs.promises.unlink(file);
-                    }
-                } catch {}
+            for (const f of cleanupFiles) {
+                try { if (fs.existsSync(f)) await fs.promises.unlink(f); } catch {}
             }
         };
 
         try {
+            // Get user session data
+            let session = userSessions.get(sender);
+            const input = args.join(' ').trim();
 
-            const quotedText =
-                m.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage?.caption || "";
+            // ========== CASE 1: User is selecting a format (step = 'format') ==========
+            if (session && session.step === 'format' && /^[12]$/.test(input)) {
+                const format = parseInt(input);
+                const video = session.selectedVideo;
+                if (!video) throw new Error('Session expired');
 
-            const userSession = sessionCache.get(m.sender);
+                await sock.sendMessage(chat, { react: { text: "⏳", key: m.key } });
+                const statusMsg = await m.reply(current.downloading);
 
-            // ======================
-            // STEP 2 - SELECT VIDEO
-            // ======================
+                const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
+                let filePath, sendPromise;
 
-            if (
-                quotedText.includes("VEX VIDEO RESULTS") &&
-                !isNaN(args[0])
-            ) {
-
-                const number = parseInt(args[0]);
-
-                if (!userSession?.results) {
-                    return m.reply("❌ Session expired.");
+                if (format === 1) { // MP3
+                    filePath = path.join(tmpDir, `audio_${Date.now()}.mp3`);
+                    addCleanup(filePath);
+                    await new Promise((res, rej) => {
+                        const stream = ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio', highWaterMark: 1 << 25 });
+                        const write = fs.createWriteStream(filePath);
+                        stream.pipe(write);
+                        stream.on('error', rej);
+                        write.on('finish', res);
+                        write.on('error', rej);
+                    });
+                    const stats = fs.statSync(filePath);
+                    if (stats.size < 10000) throw new Error('Invalid audio');
+                    sendPromise = sock.sendMessage(chat, {
+                        audio: fs.readFileSync(filePath),
+                        mimetype: 'audio/mpeg',
+                        ptt: false,
+                        fileName: `${safeTitle}.mp3`
+                    }, { quoted: m });
+                } else { // MP4
+                    filePath = path.join(tmpDir, `video_${Date.now()}.mp4`);
+                    addCleanup(filePath);
+                    await new Promise((res, rej) => {
+                        const stream = ytdl(video.url, { quality: '18', highWaterMark: 1 << 25 });
+                        const write = fs.createWriteStream(filePath);
+                        stream.pipe(write);
+                        stream.on('error', rej);
+                        write.on('finish', res);
+                        write.on('error', rej);
+                    });
+                    const stats = fs.statSync(filePath);
+                    if (stats.size < 10000) throw new Error('Invalid video');
+                    sendPromise = sock.sendMessage(chat, {
+                        video: fs.readFileSync(filePath),
+                        caption: `🎬 ${video.title}`,
+                        mimetype: 'video/mp4',
+                        fileName: `${safeTitle}.mp4`
+                    }, { quoted: m });
                 }
 
-                if (number < 1 || number > userSession.results.length) {
-                    return m.reply("❌ Invalid number.");
-                }
-
-                const selected = userSession.results[number - 1];
-
-                sessionCache.set(m.sender, {
-                    selected
-                });
-
-                let formatText = `*${selected.title}*\n\n`;
-                formatText += `${current.format}\n\n`;
-                formatText += `_VEX FORMAT SELECTION_`;
-
-                return await sock.sendMessage(
-                    m.chat,
-                    {
-                        image: { url: selected.thumbnail },
-                        caption: formatText
-                    },
-                    { quoted: m }
-                );
+                try { await sock.sendMessage(chat, { delete: statusMsg.key }); } catch {}
+                await sendPromise;
+                await sock.sendMessage(chat, { react: { text: "✅", key: m.key } });
+                userSessions.delete(sender);
+                await cleanup();
+                return;
             }
 
-            // ======================
-            // STEP 3 - SELECT FORMAT
-            // ======================
-
-            if (
-                quotedText.includes("VEX FORMAT SELECTION") &&
-                !isNaN(args[0])
-            ) {
-
-                const choice = parseInt(args[0]);
-
-                if (![1, 2].includes(choice)) {
-                    return m.reply("❌ Select 1 or 2");
+            // ========== CASE 2: User is selecting a video from results (step = 'select') ==========
+            if (session && session.step === 'select' && /^\d+$/.test(input)) {
+                const idx = parseInt(input) - 1;
+                if (idx < 0 || idx >= session.results.length) {
+                    return m.reply(`❌ Invalid number. Choose 1-${session.results.length}`);
                 }
-
-                const selected = userSession?.selected;
-
-                if (!selected) {
-                    return m.reply("❌ Session expired.");
-                }
-
-                await sock.sendMessage(m.chat, {
-                    react: {
-                        text: "⏳",
-                        key: m.key
-                    }
+                const selected = session.results[idx];
+                // Move to format selection
+                userSessions.set(sender, {
+                    step: 'format',
+                    selectedVideo: selected
                 });
-
-                const processMsg =
-                    await m.reply(current.downloading);
-
-                const safeTitle = selected.title
-                    .replace(/[\\/:*?"<>|]/g, '')
-                    .slice(0, 60);
-
-                // ======================
-                // MP3 DOWNLOAD
-                // ======================
-
-                if (choice === 1) {
-
-                    const audioPath = path.join(
-                        tmpDir,
-                        `audio_${Date.now()}.mp3`
-                    );
-
-                    addCleanup(audioPath);
-
-                    try {
-
-                        await new Promise((resolve, reject) => {
-
-                            const stream = ytdl(selected.url, {
-                                filter: 'audioonly',
-                                quality: 'highestaudio',
-                                highWaterMark: 1 << 25
-                            });
-
-                            const write =
-                                fs.createWriteStream(audioPath);
-
-                            stream.pipe(write);
-
-                            stream.on('error', reject);
-
-                            write.on('finish', resolve);
-
-                            write.on('error', reject);
-                        });
-
-                        const stats =
-                            fs.statSync(audioPath);
-
-                        if (stats.size < 10000) {
-                            throw new Error("Bad audio");
-                        }
-
-                        try {
-                            await sock.sendMessage(m.chat, {
-                                delete: processMsg.key
-                            });
-                        } catch {}
-
-                        await sock.sendMessage(
-                            m.chat,
-                            {
-                                audio: fs.readFileSync(audioPath),
-                                mimetype: 'audio/mpeg',
-                                ptt: false,
-                                fileName: `${safeTitle}.mp3`
-                            },
-                            { quoted: m }
-                        );
-
-                    } catch (e) {
-
-                        console.error("MP3 ERROR:", e);
-
-                        return m.reply(
-                            "❌ Failed downloading MP3."
-                        );
-                    }
-                }
-
-                // ======================
-                // MP4 DOWNLOAD
-                // ======================
-
-                else if (choice === 2) {
-
-                    const videoPath = path.join(
-                        tmpDir,
-                        `video_${Date.now()}.mp4`
-                    );
-
-                    addCleanup(videoPath);
-
-                    try {
-
-                        await new Promise((resolve, reject) => {
-
-                            const stream = ytdl(selected.url, {
-                                quality: '18',
-                                highWaterMark: 1 << 25
-                            });
-
-                            const write =
-                                fs.createWriteStream(videoPath);
-
-                            stream.pipe(write);
-
-                            stream.on('error', reject);
-
-                            write.on('finish', resolve);
-
-                            write.on('error', reject);
-                        });
-
-                        const stats =
-                            fs.statSync(videoPath);
-
-                        if (stats.size < 10000) {
-                            throw new Error("Bad video");
-                        }
-
-                        try {
-                            await sock.sendMessage(m.chat, {
-                                delete: processMsg.key
-                            });
-                        } catch {}
-
-                        await sock.sendMessage(
-                            m.chat,
-                            {
-                                video: fs.readFileSync(videoPath),
-                                caption:
-                                    `🎬 ${selected.title}`,
-                                mimetype: 'video/mp4',
-                                fileName: `${safeTitle}.mp4`
-                            },
-                            { quoted: m }
-                        );
-
-                    } catch (e) {
-
-                        console.error("MP4 ERROR:", e);
-
-                        return m.reply(
-                            "❌ Failed downloading MP4."
-                        );
-                    }
-                }
-
-                sessionCache.delete(m.sender);
-
-                return await cleanup();
+                // Send format choice message
+                let formatMsg = `*${selected.title}*\n\n${current.formatPrompt}\n\n_Reply with 1 or 2_`;
+                await sock.sendMessage(chat, { text: formatMsg }, { quoted: m });
+                return;
             }
 
-            // ======================
-            // STEP 1 - SEARCH
-            // ======================
+            // ========== CASE 3: New search query or direct number selection without prior session ==========
+            // If user sends a number but no session -> treat as error or new search? Better as error.
+            if (/^\d+$/.test(input) && !session) {
+                return m.reply("⚠️ No active search. Use `.video <song name>` first.");
+            }
 
-            const query = args.join(" ");
-
-            if (!query) {
+            // Otherwise, it's a new search query
+            if (!input) {
                 return m.reply(current.err);
             }
 
-            await sock.sendMessage(m.chat, {
-                react: {
-                    text: current.react,
-                    key: m.key
-                }
-            });
+            // Perform YouTube search
+            await sock.sendMessage(chat, { react: { text: current.react, key: m.key } });
+            const searchMsg = await m.reply(current.searchMsg);
 
-            const search = await yts(query);
-
-            const results =
-                search.videos
-                    .filter(v =>
-                        v.seconds < 3600 &&
-                        v.title &&
-                        v.url
-                    )
-                    .slice(0, 5);
-
-            if (!results.length) {
-                return m.reply(current.err);
+            const searchResults = await yts(input);
+            let videos = searchResults.videos.filter(v => v.seconds < 3600 && v.title && v.url).slice(0, 6);
+            if (!videos.length) {
+                await sock.sendMessage(chat, { delete: searchMsg.key }).catch(()=>{});
+                return m.reply("❌ No results found.");
             }
 
-            sessionCache.set(m.sender, {
-                results
+            // Build results listing
+            let list = `*${current.title}*\n\n${current.listHeader}:\n\n`;
+            videos.forEach((v, i) => {
+                list += `*${i+1}.* ${v.title}\n⏱️ ${v.timestamp}  |  👁️ ${v.views?.toLocaleString() || '0'}\n\n`;
             });
+            list += `_Reply with the number (e.g., "2") to select._\n_Or type ${prefix}video <number> directly._`;
 
+            // Delete searching message and send results
+            await sock.sendMessage(chat, { delete: searchMsg.key }).catch(()=>{});
+            // Send thumbnail of first result as image
+            let thumb = videos[0].thumbnail;
+            try {
+                const res = await fetch(videos[0].thumbnail);
+                thumb = Buffer.from(await res.arrayBuffer());
+            } catch(e) { thumb = null; }
+
+            if (thumb) {
+                await sock.sendMessage(chat, { image: thumb, caption: list }, { quoted: m });
+            } else {
+                await sock.sendMessage(chat, { text: list }, { quoted: m });
+            }
+
+            // Save session for this user
+            userSessions.set(sender, {
+                step: 'select',
+                results: videos
+            });
+            // Auto-expire after 5 minutes
             setTimeout(() => {
-                sessionCache.delete(m.sender);
+                if (userSessions.get(sender)?.step === 'select') userSessions.delete(sender);
             }, 300000);
 
-            let menu = `*${current.title}*\n\n`;
-
-            results.forEach((v, i) => {
-
-                menu +=
-                    `*${i + 1}.* ${v.title}\n`;
-
-                menu +=
-                    `⏱️ ${v.timestamp}\n`;
-
-                menu +=
-                    `👁️ ${v.views?.toLocaleString() || '0'} Views\n\n`;
-            });
-
-            menu += `${current.msg}\n\n`;
-            menu += `_VEX VIDEO RESULTS_`;
-
-            // DOWNLOAD THUMB FIRST
-            let thumb = results[0].thumbnail;
-
-            try {
-
-                const thumbRes =
-                    await fetch(results[0].thumbnail);
-
-                thumb = Buffer.from(
-                    await thumbRes.arrayBuffer()
-                );
-
-            } catch {}
-
-            await sock.sendMessage(
-                m.chat,
-                {
-                    image: thumb,
-                    caption: menu
-                },
-                { quoted: m }
-            );
-
         } catch (error) {
-
-            console.error("VIDEO ERROR:", error);
-
-            try {
-
-                await sock.sendMessage(m.chat, {
-                    react: {
-                        text: "🚫",
-                        key: m.key
-                    }
-                });
-
-            } catch {}
-
-            return m.reply(
-                "❌ Failed processing request."
-            );
-
-        } finally {
-
-            setTimeout(async () => {
-                await cleanup();
-            }, 10000);
+            console.error("Video Command Error:", error);
+            await sock.sendMessage(chat, { react: { text: "❌", key: m.key } }).catch(()=>{});
+            await m.reply("❌ Failed to process request. Try again later.");
+            await cleanup();
         }
     }
 };
