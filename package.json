@@ -38,7 +38,7 @@
     "qrcode": "^1.5.3",
     "yt-search": "^2.10.4",
     "ytdl-core": "latest",
-    "youtube-dl-exec": "^3.2.2",
+    "youtube-dl-exec": "^3.1.7",
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
     "socket.io-client": "^4.7.5",
