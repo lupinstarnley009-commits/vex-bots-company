@@ -1,64 +1,83 @@
 const translate = require('google-translate-api-x');
 
+function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${days}d ${hours}h ${minutes}m ${secs}s`;
+}
+
+// Always show a full bar (10 blocks) for "runtime" decoration
+const FULL_BAR = '█'.repeat(10);
+
+const STYLES = {
+    harsh: {
+        react: "💫",
+        header: "╭─⌈ *💀 VEX HARSH* ⌋",
+        barLine: `│ runtime [${FULL_BAR}]`,
+        uptimeLabel: "│ ⏱️ UPTIME:",
+        statusLine: "│ 🤖 STATUS: Crushing it",
+        footer: "╰⊷ *HARSH MODE*",
+        err: "> 🔥 Time variable corrupted."
+    },
+    normal: {
+        react: "💦",
+        header: "╭─⌈ *📱 VEX MD* ⌋",
+        barLine: `│ runtime [${FULL_BAR}]`,
+        uptimeLabel: "│ 🕘 UPTIME:",
+        statusLine: "│ ✅ STATUS: Active",
+        footer: "╰⊷ *VEX MD*",
+        err: "> ❌ Time measurement failed."
+    },
+    girl: {
+        react: "🌀",
+        header: "╭─⌈ *🌸 VEX CUTE* ⌋",
+        barLine: `│ runtime [${FULL_BAR}]`,
+        uptimeLabel: "│ 🕰️ UPTIME:",
+        statusLine: "│ 💖 STATUS: Dreaming of you",
+        footer: "╰⊷ *GIRL MODE*",
+        err: "> 🍬 Oops! Timer broke."
+    }
+};
+
 module.exports = {
     command: "runtime",
+    alias: ["uptime", "active"],
     category: "system",
-    description: "Check how long the bot has been active",
+    description: "Show bot uptime with stylish bar",
 
     async execute(m, sock, { args, userSettings }) {
-        const lang = args[0] && args[0].length === 2 ? args[0] : (userSettings?.lang || 'en');
-        const style = userSettings?.style || 'harsh';
+        const lang = args[0]?.length === 2 ? args[0] : (userSettings?.lang || 'en');
+        const style = userSettings?.style || 'normal';
+        const ui = STYLES[style] || STYLES.normal;
 
-        // Uptime calculation (same logic, untouched)
-        const uptime = process.uptime();
-        const days = Math.floor(uptime / 86400);
-        const hours = Math.floor((uptime % 86400) / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const seconds = Math.floor(uptime % 60);
-        const clock = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+        const uptimeSec = process.uptime();
+        const clock = formatUptime(uptimeSec);
 
-        // ---- BRAND NEW, UNIQUE STYLES ----
-        // Each style has completely different phrasing, structure, and emojis.
-        // No two styles resemble each other.
-        const modes = {
-            harsh: {
-                text: `⚡ *[ SYSTEM HARSH LOGS ]* ⚡\n┌───────────────┐\n│ ⏱️  UPTIME   │\n│  ${clock}  │\n└───────────────┘\n🤖 _Status: Irritated but functional._\n💢 _Stop wasting my cycles._`,
-                react: "⚡",
-                err: "🔥 _Time variable corrupted. Reboot recommended, idiot._"
-            },
-            normal: {
-                text: `📊 *━━━━━━━━━━━━━━━━━━━━*\n       📍  SYSTEM UPTIME  📍\n━━━━━━━━━━━━━━━━━━━━━━━━\n   🕘  ${clock}\n━━━━━━━━━━━━━━━━━━━━━━━━\n   ✅ All systems nominal.\n   📡 No critical errors detected.`,
-                react: "📊",
-                err: "❌ _Time measurement module failed. Check logs._"
-            },
-            girl: {
-                text: `☆*:.｡.o(≧▽≦)o.｡.:*☆\n       💖  𝓤𝓹𝓽𝓲𝓶𝓮 𝓜𝓮𝓶𝓸  💖\n     ⋆｡°✩  ✩°｡⋆\n       🕰️  *${clock}*  🕰️\n     ⋆｡°✩  ✩°｡⋆\n   🌸 _I've been dreaming of you for_ 🌸\n   🎀 _every single second, hehe~_ 🎀\n          ╰(*´︶`*)╯♡`,
-                react: "💖",
-                err: "🍬 _Oops! My little timer broke while counting hearts for you~_ 💔"
+        let message = `${ui.header}\n`;
+        message += `${ui.barLine}\n`;
+        message += `${ui.uptimeLabel} ${clock}\n`;
+        message += `${ui.statusLine}\n`;
+        message += `${ui.footer}`;
+
+        if (lang !== 'en') {
+            try {
+                const translated = await translate(message, { to: lang });
+                message = translated.text;
+            } catch (err) {
+                console.error("Translation error:", err);
             }
-        };
-
-        const currentMode = modes[style] || modes.normal;
+        }
 
         try {
-            // Send unique reaction emoji
-            await sock.sendMessage(m.chat, { react: { text: currentMode.react, key: m.key } });
-
-            if (userSettings?.silent === true) return;
-
-            let finalMessage = currentMode.text;
-
-            // Translation engine preserved
-            if (lang !== 'en') {
-                const res = await translate(finalMessage, { to: lang });
-                finalMessage = res.text;
+            await sock.sendMessage(m.chat, { react: { text: ui.react, key: m.key } });
+            if (userSettings?.silent !== true) {
+                await sock.sendMessage(m.chat, { text: message }, { quoted: m });
             }
-
-            await sock.sendMessage(m.chat, { text: finalMessage }, { quoted: m });
-
         } catch (error) {
             console.error("Runtime Error:", error);
-            await sock.sendMessage(m.chat, { text: currentMode.err });
+            await sock.sendMessage(m.chat, { text: ui.err });
         }
     }
 };
