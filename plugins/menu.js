@@ -1,8 +1,9 @@
 const translate = require("google-translate-api-x");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
-// Session store for reply‑based navigation
+// Session storage for reply‑based navigation
 const menuSessions = new Map();
 let commandCache = null;
 let cacheTimestamp = 0;
@@ -23,14 +24,14 @@ function getMessageText(msg) {
     }
 }
 
-// Safe reaction (style‑specific emojis)
+// Safe reaction
 async function safeReact(sock, chat, key, emoji) {
     try {
         await sock.sendMessage(chat, { react: { text: emoji, key } });
     } catch {}
 }
 
-// Load all plugins (cache 15s)
+// Load all plugins (cache 15 seconds)
 function loadAllCommands(pluginDir) {
     const now = Date.now();
     if (commandCache && (now - cacheTimestamp) < 15000) return commandCache;
@@ -60,72 +61,81 @@ function loadAllCommands(pluginDir) {
     return commandCache;
 }
 
-// Real system stats (for header)
-function getRealStats() {
-    const uptimeSeconds = process.uptime();
-    const days = Math.floor(uptimeSeconds / 86400);
-    const hours = Math.floor((uptimeSeconds % 86400) / 3600);
-    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+// Real system stats (used in header)
+function getSystemStats() {
+    const totalMem = os.totalmem() / (1024 * 1024);
+    const freeMem = os.freemem() / (1024 * 1024);
+    const usedMem = totalMem - freeMem;
+    const memPercent = ((usedMem / totalMem) * 100).toFixed(0);
+    const ramUsage = `${usedMem.toFixed(1)}MB / ${totalMem.toFixed(1)}MB`;
+    const uptimeSec = process.uptime();
+    const days = Math.floor(uptimeSec / 86400);
+    const hours = Math.floor((uptimeSec % 86400) / 3600);
+    const minutes = Math.floor((uptimeSec % 3600) / 60);
     const uptimeStr = days ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
-    const memUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
-    return { uptime: uptimeStr, memory: `${memUsage} MB` };
+    return { memPercent, ramUsage, uptime: uptimeStr };
 }
 
 // ==============================
-// STYLES (ping‑like design)
+// STYLES (Wolfbot‑inspired)
 // ==============================
 const STYLES = {
     harsh: {
         react: "🎏",
         title: "⛓️ VEX HARSH MENU",
         footer: "HARSH MODE",
-        lineChar: "│"
+        owner: "VEX"
     },
     normal: {
         react: "🐰",
         title: "📱 VEX MD",
         footer: "NORMAL MODE",
-        lineChar: "│"
+        owner: "VEX"
     },
     girl: {
         react: "🥨",
         title: "🌸 VEX CUTE MENU",
         footer: "GIRL MODE",
-        lineChar: "│"
+        owner: "VEX"
     }
 };
 
-// Build the category list header (no boxes, just lines)
-function buildCategoryHeader(styleTitle, user, totalCmds, totalCats, stats, prefix) {
-    let header = `╭─⌈ *${styleTitle}* ⌋\n`;
-    header += `│ 👤 User : @${user}\n`;
-    header += `│ 📦 Commands : ${totalCmds}\n`;
-    header += `│ 📂 Categories : ${totalCats}\n`;
-    header += `│ ⏱️ Uptime : ${stats.uptime}\n`;
-    header += `│ 💾 Memory : ${stats.memory}\n`;
-    header += `│ 🔌 Prefix : ${prefix}\n`;
-    header += `│\n`;
-    return header;
+// Build the main menu header (Wolfbot style)
+function buildHeader(user, styleTitle, prefix, stats, mode, owner) {
+    const platform = os.platform() === "linux" ? "🐧 Linux" : os.platform();
+    const status = "🟢 Active";
+    const timezone = "Africa/Dar_es_Salaam";
+    return `╭─⌈ *${styleTitle}* ⌋
+│ 👤 User : @${user}
+│ 👑 Owner : ${owner}
+│ ⚙️ Mode : ${mode}
+│ 🔌 Prefix : [${prefix}]
+│ 📦 Version : 1.1.5
+│ 💻 Platform : ${platform}
+│ ✅ Status : ${status}
+│ 🕒 Timezone : ${timezone}
+│ ⏱️ Uptime : ${stats.uptime}
+│ 💾 RAM : ${stats.memPercent}%
+│ 📊 Memory : ${stats.ramUsage}
+│
+`;
 }
 
+// List categories (numbered, one per line)
 function buildCategoryList(sortedCats, categories) {
-    let list = `│ ┌───┬─────────────────────┬──────┐\n`;
-    list += `│ │ # │ Category            │ Cmds │\n`;
-    list += `│ ├───┼─────────────────────┼──────┤\n`;
+    let list = "";
     sortedCats.forEach((cat, idx) => {
         const num = String(idx + 1).padStart(2, " ");
         const cmdCount = categories.get(cat).length;
-        const catName = cat.toUpperCase().padEnd(19, " ");
-        list += `│ │ ${num} │ ${catName} │ ${String(cmdCount).padStart(4, " ")} │\n`;
+        list += `│ ${num}. ${cat.toUpperCase()} (${cmdCount} commands)\n`;
     });
-    list += `│ └───┴─────────────────────┴──────┘\n`;
     return list;
 }
 
+// Show commands of a selected category (simple numbered list)
 function buildCommandsList(category, commands, prefix, styleTitle, styleFooter) {
     let output = `╭─⌈ *${styleTitle}* ⌋\n`;
-    output += `│ 📁 ${category.toUpperCase()} (${commands.length} commands)\n`;
-    output += `│\n`;
+    output += `│ 📁 ${category.toUpperCase()} (${commands.length} commands)\n│\n`;
     commands.forEach((cmd, i) => {
         const num = String(i + 1).padStart(2, "0");
         output += `│ ${num} › ${prefix}${cmd.cmd}\n`;
@@ -140,7 +150,7 @@ module.exports = {
     command: "menu",
     alias: ["help", "cmds", "commands"],
     category: "system",
-    description: "Show categorized commands – reply with number or .menu <number>",
+    description: "Show command categories with Wolfbot‑style layout",
 
     async execute(m, sock, ctx) {
         const { args, userSettings, prefix } = ctx;
@@ -158,12 +168,13 @@ module.exports = {
         const lang = (args[0]?.length === 2 ? args[0] : userSettings?.lang) || "en";
         const style = userSettings?.style || "normal";
         const ui = STYLES[style] || STYLES.normal;
+        const mode = style.charAt(0).toUpperCase() + style.slice(1); // "Normal", "Harsh", "Girl"
 
         const pluginDir = path.join(__dirname, "../plugins");
         const { categories, totalCommands, sortedCats } = loadAllCommands(pluginDir);
         if (!sortedCats.length) return m.reply("⚠️ No categories found.");
 
-        const stats = getRealStats();
+        const stats = getSystemStats();
         await safeReact(sock, chatId, m.key, ui.react);
 
         // Direct category selection via .menu <number>
@@ -183,9 +194,9 @@ module.exports = {
         }
 
         // Build main menu (categories)
-        const header = buildCategoryHeader(ui.title, sender, totalCommands, sortedCats.length, stats, prefix);
-        const catTable = buildCategoryList(sortedCats, categories);
-        let menuText = `${header}${catTable}\n│ 💡 Reply with category number (e.g., "03") or use ${prefix}menu <number>\n╰⊷ *${ui.footer}*`;
+        const header = buildHeader(sender, ui.title, prefix, stats, mode, ui.owner);
+        const catList = buildCategoryList(sortedCats, categories);
+        let menuText = `${header}${catList}│\n│ 💡 Reply with category number (e.g., "03") or use ${prefix}menu <number>\n╰⊷ *${ui.footer}*`;
 
         if (lang !== "en") {
             try {
@@ -194,7 +205,7 @@ module.exports = {
             } catch {}
         }
 
-        // Optional: send image (if you have one) – skip if not needed
+        // Send as plain text (no image needed)
         const sentMsg = await sock.sendMessage(chatId, { text: menuText, mentions: [m.sender] }, { quoted: m });
 
         // Store session for reply‑based selection
@@ -214,7 +225,7 @@ module.exports = {
 };
 
 // ==============================
-// GLOBAL LISTENER (handles replies)
+// GLOBAL LISTENER (handles replies to menu)
 // ==============================
 module.exports.listener = async (sock) => {
     sock.ev.on("messages.upsert", async ({ messages }) => {
