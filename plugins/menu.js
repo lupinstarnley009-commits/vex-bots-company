@@ -4,15 +4,17 @@ const path = require("path");
 const axios = require("axios");
 
 // ==============================
-//  VEX DYNAMIC MENU (NO BUTTONS)
-//  FRESH UNIQUE DESIGN
+//  VEX DYNAMIC MENU (NEW DESIGN)
+//  - Rabbit reaction 🐰
+//  - Two selection methods: reply with number OR .menu <number>
+//  - Clean lines & numbers
 // ==============================
 
 const MENU_IMAGE = "https://i.ibb.co/Myk40VZF/Chat-GPT-Image-May-10-2026-12-07-48-PM.png";
-const menuSessions = new Map();        // For category selection
+const menuSessions = new Map();        // For reply-based navigation
 let commandCache = null;
 let cacheTimestamp = 0;
-const userCooldown = new Map();        // Prevent spam
+const userCooldown = new Map();
 
 // Helper: extract text from message
 function getMessageText(msg) {
@@ -29,8 +31,8 @@ function getMessageText(msg) {
     }
 }
 
-// Safe react
-async function safeReact(sock, chat, key, emoji) {
+// Safe react (with rabbit 🐰 as main reaction)
+async function safeReact(sock, chat, key, emoji = "🐰") {
     try {
         await sock.sendMessage(chat, { react: { text: emoji, key } });
     } catch {}
@@ -66,7 +68,7 @@ function loadAllCommands(pluginDir) {
     return commandCache;
 }
 
-// Get real system stats (no fake numbers)
+// Real system stats
 function getRealStats() {
     const uptimeSeconds = process.uptime();
     const days = Math.floor(uptimeSeconds / 86400);
@@ -78,58 +80,61 @@ function getRealStats() {
 }
 
 // ==============================
-//  BRAND NEW STYLES (UNIQUE)
+//  NEW DESIGN (lines, uncolored, number formatting)
 // ==============================
-const STYLES = {
-    harsh: {
-        react: "⚡",
-        head: (user, cmdCount, catCount, stats) =>
-`✦ 𝗩𝗘𝗫 𝗛𝗔𝗥𝗦𝗛 𝗧𝗘𝗥𝗠𝗜𝗡𝗔𝗟 ✦
-──────────────────
-👤 𝗨𝘀𝗲𝗿 : @${user}
-⚙️ 𝗠𝗼𝗱𝗲 : 𝗛𝗮𝗿𝘀𝗵
-📦 𝗖𝗺𝗱𝘀 : ${cmdCount}
-🗂️ 𝗖𝗮𝘁𝘀 : ${catCount}
-⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲 : ${stats.uptime}
-💾 𝗠𝗲𝗺 : ${stats.memory}
-──────────────────`,
-        foot: `💡 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗰𝗮𝘁𝗲𝗴𝗼𝗿𝘆 𝗻𝘂𝗺𝗯𝗲𝗿 (𝟬𝟭, 𝟬𝟮...)`
-    },
-    normal: {
-        react: "🌟",
-        head: (user, cmdCount, catCount, stats) =>
-`✨ 𝗩𝗘𝗫 𝗖𝗢𝗠𝗠𝗔𝗡𝗗 𝗖𝗘𝗡𝗧𝗘𝗥 ✨
-───────────────────
-👤 𝗨𝘀𝗲𝗿 : @${user}
-🤖 𝗦𝘁𝗮𝘁𝘂𝘀 : 𝗔𝗰𝘁𝗶𝘃𝗲
-📚 𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 : ${cmdCount}
-📂 𝗖𝗮𝘁𝗲𝗴𝗼𝗿𝗶𝗲𝘀 : ${catCount}
-⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲 : ${stats.uptime}
-💾 𝗠𝗲𝗺𝗼𝗿𝘆 : ${stats.memory}
-───────────────────`,
-        foot: `📌 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗻𝘂𝗺𝗯𝗲𝗿 (𝗲.𝗴. 𝟬𝟯) 𝘁𝗼 𝗼𝗽𝗲𝗻`
-    },
-    girl: {
-        react: "🌸",
-        head: (user, cmdCount, catCount, stats) =>
-`🌸 𝗩𝗘𝗫 𝗖𝗨𝗧𝗘 𝗠𝗘𝗡𝗨 🌸
-─────────────────
-👤 @${user}
-💖 𝗠𝗼𝗱𝗲 : 𝗚𝗶𝗿𝗹
-📖 𝗖𝗺𝗱𝘀 : ${cmdCount}
-🎀 𝗖𝗮𝘁𝘀 : ${catCount}
-🕰️ 𝗨𝗽 : ${stats.uptime}
-🍭 𝗥𝗔𝗠 : ${stats.memory}
-─────────────────`,
-        foot: `💬 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗻𝘂𝗺𝗯𝗲𝗿, 𝗯𝗮𝗯𝗲~`
-    }
-};
+function buildMenuHeader(user, totalCmds, totalCats, stats, prefix) {
+    return `
+┌─────────────────────────────────┐
+│         VEX COMMAND CENTER       │
+├─────────────────────────────────┤
+│  👤 User      : @${user}        │
+│  📦 Commands  : ${totalCmds}              │
+│  📂 Categories: ${totalCats}              │
+│  ⏱️ Uptime    : ${stats.uptime}           │
+│  💾 Memory    : ${stats.memory}           │
+│  🔌 Prefix    : ${prefix}                │
+└─────────────────────────────────┘
+`;
+}
 
+function buildCategoryList(sortedCats, categories) {
+    let list = "┌─────────────┬─────────────────────┐\n";
+    list += "│  #  │ Category            │ Cmds │\n";
+    list += "├─────┼─────────────────────┼──────┤\n";
+    sortedCats.forEach((cat, idx) => {
+        const num = String(idx + 1).padStart(2, "0");
+        const cmdCount = categories.get(cat).length;
+        const catName = cat.toUpperCase().padEnd(19, " ");
+        list += `│ ${num}  │ ${catName} │  ${cmdCount}   │\n`;
+    });
+    list += "└─────┴─────────────────────┴──────┘";
+    return list;
+}
+
+function buildCommandsList(category, commands, prefix) {
+    let output = `
+┌─────────────────────────────────────────┐
+│  📁  ${category.toUpperCase()}  (${commands.length} commands)  │
+├─────────────────────────────────────────┤
+`;
+    commands.forEach((cmd, i) => {
+        const num = String(i + 1).padStart(2, "0");
+        output += `│ ${num} › ${prefix}${cmd.cmd}\n`;
+        output += `│     ${cmd.desc.substring(0, 50)}\n`;
+        if (i !== commands.length - 1) output += `│─────────────────────────────────────────│\n`;
+    });
+    output += `└─────────────────────────────────────────┘\n🔁 Type "${prefix}menu" to return.`;
+    return output;
+}
+
+// ==============================
+//  MAIN COMMAND EXPORT
+// ==============================
 module.exports = {
     command: "menu",
     alias: ["help", "cmds", "commands"],
     category: "system",
-    description: "Show command categories with dynamic selection (reply number)",
+    description: "Show categorized commands – reply with number or .menu <number>",
 
     async execute(m, sock, ctx) {
         const { args, userSettings, prefix } = ctx;
@@ -145,28 +150,36 @@ module.exports = {
         userCooldown.set(cooldownKey, Date.now());
 
         const lang = (args[0]?.length === 2 ? args[0] : userSettings?.lang) || "en";
-        const style = userSettings?.style || "normal";
+        const style = userSettings?.style || "normal"; // style not used much in design but kept
         const pluginDir = path.join(__dirname, "../plugins");
 
         const { categories, totalCommands, sortedCats } = loadAllCommands(pluginDir);
         if (!sortedCats.length) return m.reply("⚠️ No categories found.");
 
         const stats = getRealStats();
-        const ui = STYLES[style] || STYLES.normal;
-        await safeReact(sock, chatId, m.key, ui.react);
+        await safeReact(sock, chatId, m.key, "🐰"); // Rabbit reaction
 
-        // Build category list (fresh design)
-        let catList = "";
-        sortedCats.forEach((cat, idx) => {
-            const num = String(idx + 1).padStart(2, "0");
-            const cmdCount = categories.get(cat).length;
-            catList += `  ${num} › ${cat.toUpperCase()}  (${cmdCount} cmd)\n`;
-        });
+        // Check if user provided a category number directly (e.g., .menu 2)
+        const directNum = args[0] && /^\d+$/.test(args[0]) ? parseInt(args[0]) - 1 : null;
+        if (directNum !== null && directNum >= 0 && directNum < sortedCats.length) {
+            const selectedCat = sortedCats[directNum];
+            const commands = categories.get(selectedCat) || [];
+            let cmdList = buildCommandsList(selectedCat, commands, prefix);
+            if (lang !== "en") {
+                try {
+                    const translated = await translate(cmdList, { to: lang });
+                    cmdList = translated.text;
+                } catch {}
+            }
+            await sock.sendMessage(chatId, { text: cmdList }, { quoted: m });
+            return;
+        }
 
-        // Main menu content (no boxes, no special chars)
-        let menuText = `${ui.head(sender, totalCommands, sortedCats.length, stats)}\n\n📂 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦\n${catList}\n──────────────────\n${ui.foot}\n\n🌍 𝗣𝗿𝗲𝗳𝗶𝘅 : ${prefix}\n🔄 𝗦𝗲𝘀𝘀𝗶𝗼𝗻 : 60𝘀`;
+        // Otherwise show main menu
+        const header = buildMenuHeader(sender, totalCommands, sortedCats.length, stats, prefix);
+        const catTable = buildCategoryList(sortedCats, categories);
+        let menuText = `${header}\n\n${catTable}\n\n💡 Reply with category number (e.g., "03") or use ${prefix}menu <number> directly.`;
 
-        // Translate if needed
         if (lang !== "en") {
             try {
                 const translated = await translate(menuText, { to: lang });
@@ -187,7 +200,7 @@ module.exports = {
             mentions: [m.sender]
         }, { quoted: m });
 
-        // Store session for reply handling
+        // Store session for reply-based navigation
         const sessionId = `${chatId}_${m.sender}`;
         if (menuSessions.has(sessionId)) clearTimeout(menuSessions.get(sessionId).timeout);
         menuSessions.set(sessionId, {
@@ -195,7 +208,6 @@ module.exports = {
             commandsMap: categories,
             lang,
             prefix,
-            pluginDir,   // not used further but kept
             msgId: sentMsg.key?.id,
             timeout: setTimeout(() => menuSessions.delete(sessionId), 60000)
         });
@@ -203,7 +215,7 @@ module.exports = {
 };
 
 // ==============================
-//  GLOBAL LISTENER (handles replies)
+//  GLOBAL LISTENER (handles replies to menu message)
 // ==============================
 module.exports.listener = async (sock) => {
     sock.ev.on("messages.upsert", async ({ messages }) => {
@@ -220,7 +232,7 @@ module.exports.listener = async (sock) => {
             let input = getMessageText(msg);
             if (!input) return;
 
-            // Extract number: supports "03", "3", "menu 3", "menu_03"
+            // Extract number (supports "03", "3", "menu 3")
             let numMatch = input.match(/\b(\d{1,2})\b/);
             if (!numMatch) return;
             const catIndex = parseInt(numMatch[1]) - 1;
@@ -229,15 +241,7 @@ module.exports.listener = async (sock) => {
             const selectedCat = session.categories[catIndex];
             const commands = session.commandsMap.get(selectedCat) || [];
 
-            // Build command list (clean and simple)
-            let cmdList = `📁 *${selectedCat.toUpperCase()}*  (${commands.length} commands)\n────────────────\n`;
-            commands.forEach((cmd, i) => {
-                const num = String(i + 1).padStart(2, "0");
-                cmdList += `${num} › ${session.prefix}${cmd.cmd}\n   ✦ ${cmd.desc}\n\n`;
-            });
-            cmdList += `────────────────\n🔁 Reply with "menu" again for categories.`;
-
-            // Translate if needed
+            let cmdList = buildCommandsList(selectedCat, commands, session.prefix);
             if (session.lang !== "en") {
                 try {
                     const translated = await translate(cmdList, { to: session.lang });
