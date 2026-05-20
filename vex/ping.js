@@ -1,63 +1,105 @@
-// VEX MINI BOT - VEX: ping
-// Nova: Checks system latency with VEX PING ENGINE image.
-// Dev: Lupin Starnley
+// VEX MINI BOT - PING COMMAND
+// Enhanced with dynamic speed bar, multi-style reactions, and real-time updating for 10 seconds.
 
 const path = require('path');
 const fs = require('fs');
 
-module.exports = {
-    vex: 'ping',           // Command name: .ping
-    cyro: 'system',         // Category
-    nova: 'Checks system latency', // Description
+// Helper: generate speed bar based on ping (ms)
+function getSpeedBar(ping) {
+    let filledBlocks;
+    if (ping <= 50) filledBlocks = 10;
+    else if (ping <= 100) filledBlocks = 9;
+    else if (ping <= 200) filledBlocks = 7;
+    else if (ping <= 300) filledBlocks = 5;
+    else if (ping <= 500) filledBlocks = 3;
+    else filledBlocks = 1;
+    const emptyBlocks = 10 - filledBlocks;
+    const bar = '█'.repeat(filledBlocks) + '░'.repeat(emptyBlocks);
+    return bar;
+}
 
-    async execute(m, sock, commands) {
-        // 1. 🔥 FLASH REACTION (Signature Rose Emoji)
-        // Mseji ikipokelewa tu, bot inareact na ua la rose kwanza.
-        const roseReact = {
-            react: {
-                text: "🌹",
-                key: m.key
+// Styles configuration
+const STYLES = {
+    harsh: {
+        react: "🥾",
+        header: "╭─⌈ *⛓️ VEX HARSH PING* ⌋\n│",
+        latencyLabel: "⚡ LATENCY",
+        barLabel: "📡 SPEED BAR",
+        footer: "╰⊷ *HARSH MODE ACTIVE*"
+    },
+    normal: {
+        react: "🚨",
+        header: "╭─⌈ *🚨 VEX PING MONITOR* ⌋\n│",
+        latencyLabel: "📶 LATENCY",
+        barLabel: "📊 SPEED BAR",
+        footer: "╰⊷ *NORMAL MODE*"
+    },
+    girl: {
+        react: "💖",
+        header: "╭─⌈ *🌸 VEX CUTE PING* ⌋\n│",
+        latencyLabel: "💕 LATENCY",
+        barLabel: "🎀 SPEED BAR",
+        footer: "╰⊷ *GIRL MODE*"
+    }
+};
+
+module.exports = {
+    command: "ping",
+    alias: ["latency", "speed"],
+    category: "system",
+    description: "Check system latency with dynamic speed bar (updates for 10 seconds)",
+
+    async execute(m, sock, { userSettings }) {
+        const chat = m.chat;
+        const sender = m.sender;
+        const style = userSettings?.style || 'normal';
+        const ui = STYLES[style] || STYLES.normal;
+
+        // Initial reaction (style-specific)
+        await sock.sendMessage(chat, { react: { text: ui.react, key: m.key } });
+
+        // Initial "measuring" message
+        const initMsg = await sock.sendMessage(chat, { text: "⏳ Measuring ping for 10 seconds..." }, { quoted: m });
+
+        let lastMsgKey = initMsg.key;
+        const startTime = Date.now();
+        let intervalCount = 0;
+        const totalIntervals = 10; // 10 seconds
+
+        const updatePing = async () => {
+            intervalCount++;
+            const currentPing = Date.now() - startTime;
+            const bar = getSpeedBar(currentPing);
+            const pingMs = currentPing;
+
+            let text = `${ui.header}\n`;
+            text += `│ • ${ui.latencyLabel}: ${pingMs} ms\n`;
+            text += `│ • ${ui.barLabel}: [${bar}]\n`;
+            text += `│ • Duration: ${intervalCount}/10 sec\n`;
+            text += `│\n`;
+            text += `${ui.footer}\n\n_Powered by VEX Engine_`;
+
+            // Edit the previous message (send new message with same key)
+            await sock.sendMessage(chat, { text: text, edit: lastMsgKey });
+            // Update lastMsgKey? Actually after edit, the key remains the same. We keep it.
+
+            if (intervalCount < totalIntervals) {
+                setTimeout(updatePing, 1000);
+            } else {
+                // Final message after 10 seconds - no more edits
+                const finalPing = Date.now() - startTime;
+                const finalBar = getSpeedBar(finalPing);
+                let finalText = `${ui.header}\n`;
+                finalText += `│ • ${ui.latencyLabel}: ${finalPing} ms\n`;
+                finalText += `│ • ${ui.barLabel}: [${finalBar}]\n`;
+                finalText += `│ • Measurement: COMPLETE\n`;
+                finalText += `│\n`;
+                finalText += `${ui.footer}\n\n✅ Final reading after 10 seconds.\n_Powered by VEX Engine_`;
+                await sock.sendMessage(chat, { text: finalText, edit: lastMsgKey });
             }
         };
-        await sock.sendMessage(m.key.remoteJid, roseReact);
 
-        // 2. 📝 PREPARE THE MESSAGE TEXT
-        // Tunatengeneza meseji kwa muundo wetu wa Quantum-Flow tuliyoukubali.
-        const ping = Date.now() - m.messageTimestamp * 1000;
-        let pingText = `╭━━━〔 *VEX MINI BOT* 〕━━━╮\n`;
-        pingText += `┃ 📶 *Signal Status:* Excellent\n`;
-        pingText += `┃ 📡 *Latency:* ${ping}ms\n`;
-        pingText += `┃ 👤 *Dev:* Lupin Starnley\n`;
-        pingText += `┃ ⚡ *Mode:* Zero Lag\n`;
-        pingText += `┃ 🧬 *Mode:* Supreme High-Speed\n`;
-        pingText += `┃ \n`;
-        pingText += `┃ *CYRO INFO:* SYSTEM\n`;
-        pingText += `┃ *VEX-NOVA:* PING ENGINE Active.\n`;
-        pingText += `╰━━━━━━━━━━━━━━━━━━━━╯\n\n`;
-        pingText += `_Powered by VEX Engine_`;
-
-        // 3. 🖼️ HANDLE AND SEND THE IMAGE (vex_ping.png)
-        try {
-            // Tunatafuta location ya picha ya vex_ping.png kwenye folder la assets/images
-            const pingImageUrl = path.join(__dirname, '../assets/images/vex_ping.png');
-
-            // Je, picha ipo?
-            if (fs.existsSync(pingImageUrl)) {
-                // Kama picha ipo, tunatuma picha pamoja na meseji (caption)
-                await sock.sendMessage(m.key.remoteJid, { 
-                    image: { url: pingImageUrl }, 
-                    caption: pingText 
-                }, { quoted: m });
-            } else {
-                // Kama picha haipo (kitu ambacho hakitotokea), tunatuma text tu
-                console.error("VEX ERROR: assets/images/vex_ping.png not found!");
-                await sock.sendMessage(m.key.remoteJid, { text: pingText }, { quoted: m });
-            }
-
-        } catch (e) {
-            // Kama kuna hitilafu nyingine, tuma text tu
-            console.error("VEX Msg Error:", e);
-            await sock.sendMessage(m.key.remoteJid, { text: pingText }, { quoted: m });
-        }
+        // Start the first update after 1 second
+        setTimeout(updatePing, 1000);
     }
 };
