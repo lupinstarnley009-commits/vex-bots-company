@@ -1,99 +1,132 @@
-const Jimp = require('jimp');
-const jsQR = require('jsqr');
+// plugins/qread.js
+// QR Code Reader with animated bars (5-10 seconds), multi-style, no fake results.
+
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const jimp = require('jimp');
+const jsQR = require('jsqr');
+const translate = require('google-translate-api-x');
+
+// Helper: generate animated bar (like ping)
+function getProgressBar(percent) {
+    const filled = Math.floor(percent / 10);
+    const empty = 10 - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty);
+}
+
+// Styles configuration
+const STYLES = {
+    harsh: {
+        react: "🗽",
+        header: "╭─⌈ *⛓️ VEX QR HARSH* ⌋\n│",
+        processing: "DECODING QR...",
+        footer: "╰⊷ *HARSH MODE*"
+    },
+    normal: {
+        react: "🐙",
+        header: "╭─⌈ *📱 VEX QR READER* ⌋\n│",
+        processing: "SCANNING QR CODE...",
+        footer: "╰⊷ *NORMAL MODE*"
+    },
+    girl: {
+        react: "🐍",
+        header: "╭─⌈ *🌸 VEX CUTE QR* ⌋\n│",
+        processing: "READING MAGIC QR...",
+        footer: "╰⊷ *GIRL MODE*"
+    }
+};
 
 module.exports = {
-    command: "readqr",
+    command: "qread",
+    alias: ["scanqr", "readqr", "qrscan"],
     category: "tools",
-    description: "Scan and decode any QR code from image",
+    description: "Read QR code from an image (reply to QR image)",
 
-    async execute(m, sock, { userSettings, lang, prefix }) {
-        const style = userSettings?.style || 'harsh';
-        const targetLang = lang || 'en';
+    async execute(m, sock, { userSettings, prefix }) {
+        const chat = m.chat;
+        const style = userSettings?.style || 'normal';
+        const lang = userSettings?.lang || 'en';
+        const ui = STYLES[style] || STYLES.normal;
 
-        const modes = {
-            harsh: {
-                title: "☣️ 𝕍𝔼𝕏 ℚℝ 𝕊ℂ𝔸ℕℕ𝔼ℝ ☣️",
-                line: "━",
-                noImage: "⚠️ Reply to an image containing a QR code",
-                usage: `Example: Reply to QR image with ${prefix}readqr`,
-                notFound: "☠️ No QR code detected in the image",
-                success: "☠️ QR code decoded successfully",
-                react: "🔍"
-            },
-            normal: {
-                title: "📱 QR READER 📱",
-                line: "─",
-                noImage: "⚠️ Reply to an image with a QR code",
-                usage: `Example: Reply to image with ${prefix}readqr`,
-                notFound: "❌ No QR code found in the image",
-                success: "✅ QR code scanned successfully",
-                react: "📱"
-            },
-            girl: {
-                title: "🫧 QR Scanner 🫧",
-                line: "┄",
-                noImage: "🫧 Please reply to an image with a QR code~ 🫧",
-                usage: `🫧 Example: Reply to image with ${prefix}readqr 🫧`,
-                notFound: "🫧 No QR code found in this image~ 🫧",
-                success: "🫧 QR code scanned perfectly~ 🫧",
-                react: "🎀"
-            }
-        };
-
-        const current = modes[style] || modes.normal;
-
-        try {
-            await sock.sendMessage(m.chat, { react: { text: current.react, key: m.key } });
-
-            const quoted = m.quoted ? m.quoted : m;
-            let imageMessage = null;
-
-            // 1. Check if replied to image or sent image with caption
-            if (quoted.message?.imageMessage) {
-                imageMessage = quoted.message.imageMessage;
-            } else if (quoted.message?.viewOnceMessageV2?.message?.imageMessage) {
-                imageMessage = quoted.message.viewOnceMessageV2.message.imageMessage;
-            } else if (quoted.message?.viewOnceMessage?.message?.imageMessage) {
-                imageMessage = quoted.message.viewOnceMessage.message.imageMessage;
-            } else if (m.message?.imageMessage) {
-                imageMessage = m.message.imageMessage;
-            }
-
-            if (!imageMessage) {
-                const msg = `*${current.title}*\n${current.line.repeat(15)}\n${current.noImage}\n\n${current.usage}`;
-                return await m.reply(msg);
-            }
-
-            // 2. Download image buffer
-            const stream = await downloadContentFromMessage(imageMessage, 'image');
-            let buffer = Buffer.from([]);
-            for await (const chunk of stream) {
-                buffer = Buffer.concat([buffer, chunk]);
-            }
-
-            // 3. Read image with Jimp
-            const image = await Jimp.read(buffer);
-            const { data, width, height } = image.bitmap;
-
-            // 4. Decode QR using jsQR
-            const code = jsQR(new Uint8ClampedArray(data), width, height);
-
-            if (!code || !code.data) {
-                const msg = `*${current.title}*\n${current.line.repeat(15)}\n${current.notFound}`;
-                return await m.reply(msg);
-            }
-
-            // 5. Send decoded result
-            const resultText = code.data.trim();
-            const msg = `*${current.title}*\n${current.line.repeat(15)}\n${current.success}\n\n📋 *Content:*\n${resultText}`;
-
-            await sock.sendMessage(m.chat, { text: msg }, { quoted: m });
-
-        } catch (error) {
-            console.error("VEX READQR ERROR:", error);
-            const errorMsg = `*${current.title}*\n${current.line.repeat(15)}\n☠️ Failed to read QR. Image may be blurry or invalid.`;
-            await m.reply(errorMsg);
+        // Check for quoted image
+        const quoted = m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        let mediaMsg = quoted?.imageMessage || m.message?.imageMessage;
+        if (!mediaMsg) {
+            return m.reply(`❌ Please reply to an image containing a QR code.\nExample: ${prefix}qread (reply to QR image)`);
         }
+
+        // React with style emoji
+        await sock.sendMessage(chat, { react: { text: ui.react, key: m.key } });
+
+        // Send initial processing message
+        const initMsg = await sock.sendMessage(chat, { text: `⏳ ${ui.processing} (0%)` }, { quoted: m });
+        let lastMsgKey = initMsg.key;
+
+        // Download image buffer
+        const stream = await downloadContentFromMessage(mediaMsg, 'image');
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+        }
+        if (!buffer || buffer.length < 100) {
+            await sock.sendMessage(chat, { text: '❌ Failed to download image or image too small.', edit: lastMsgKey });
+            return;
+        }
+
+        // Simulate progress over 5 seconds (real decoding is fast, but we add animation)
+        const totalSteps = 10; // 10 steps = 5 seconds (0.5s each)
+        let step = 0;
+        const interval = setInterval(async () => {
+            step++;
+            const percent = Math.min(step * 10, 100);
+            const bar = getProgressBar(percent);
+            const text = `${ui.header}\n│ > ${ui.processing} [${bar}] ${percent}%\n│\n${ui.footer}`;
+            try {
+                await sock.sendMessage(chat, { text, edit: lastMsgKey });
+            } catch (e) {}
+            if (step >= totalSteps) clearInterval(interval);
+        }, 500);
+
+        // Actual decoding
+        let decodedText = null;
+        let errorMsg = null;
+        try {
+            // Use jimp to read image and get pixel data
+            const image = await jimp.read(buffer);
+            const { width, height } = image.bitmap;
+            const imageData = new Uint8ClampedArray(image.bitmap.data);
+            const code = jsQR(imageData, width, height);
+            if (code) {
+                decodedText = code.data;
+            } else {
+                errorMsg = 'No QR code found in the image.';
+            }
+        } catch (err) {
+            errorMsg = `Decoding error: ${err.message}`;
+        }
+
+        clearInterval(interval);
+
+        // Final message
+        let finalText = `${ui.header}\n│`;
+        if (decodedText) {
+            const barFull = getProgressBar(100);
+            finalText += `\n│ > QR DECODED [${barFull}] 100%\n`;
+            finalText += `│\n│ 📄 RESULT:\n│ ${decodedText.substring(0, 200)}\n`;
+            if (decodedText.length > 200) finalText += `│ ... (truncated)\n`;
+            finalText += `│\n${ui.footer}`;
+        } else {
+            finalText += `\n│ ❌ ${errorMsg || 'QR reading failed'}\n│\n${ui.footer}`;
+        }
+
+        // Translate if needed
+        if (lang !== 'en') {
+            try {
+                const translated = await translate(finalText, { to: lang });
+                finalText = translated.text;
+            } catch {}
+        }
+
+        await sock.sendMessage(chat, { text: finalText, edit: lastMsgKey });
+        await sock.sendMessage(chat, { react: { text: decodedText ? '✅' : '❌', key: m.key } });
     }
 };
