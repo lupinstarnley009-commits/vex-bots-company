@@ -162,24 +162,19 @@ let aiCallCount = {};
 // MODULE EXPORT
 // =========================
 module.exports = {
-
     command: "animesearch",
-
     alias: ["anisearch", "aninfo", "as", "findanime", "animefind", "animeinfo"],
-
     category: "anime",
-
     description: "VEX AI AnimeSearch - GOD MODE SEARCH ENGINE",
 
-    async execute(m, sock, { userSettings, lang, prefix }) {
+    async execute(m, sock, { args, userSettings, prefix }) {
         try {
             const chatId = m.chat;
             const userId = m.sender;
             const usedPrefix = prefix || '.';
             const style = userSettings?.style || 'normal';
-            const targetLang = lang || 'en';
+            const targetLang = userSettings?.lang || 'en';
 
-            const args = Array.isArray(m.args) ? m.args : [];
             const query = args.join(" ").trim();
 
             if (!query) {
@@ -206,7 +201,8 @@ module.exports = {
             const searchTerm = query.replace(/ai|top|random|genre:\w+|year:\d{4}/gi, '').trim();
 
             if (responseCache.has(query)) {
-                return await sock.sendMessage(chatId, responseCache.get(query), { quoted: m });
+                const cached = responseCache.get(query);
+                return await sock.sendMessage(chatId, cached, { quoted: m });
             }
 
             let animeData = null;
@@ -255,8 +251,7 @@ module.exports = {
                 try {
                     const aiPrompt = `Provide anime info for "${searchTerm || query}"\n\nReturn STRICT JSON ONLY:\n{\n"title":"name",\n"year":2000,\n"eps":24,\n"genre":["Action"],\n"rating":8.5,\n"synopsis":"plot",\n"studio":"studio"\n}`;
                     const aiResult = await callAI(aiPrompt, 400);
-                    const clean = aiResult.replace(/```json/gi, '').replace(/
-```/g, '').trim();
+                    const clean = aiResult.replace(/```json/gi, '').replace(/```/g, '').trim();
                     const parsed = JSON.parse(clean);
                     if (parsed?.title) {
                         animeData = parsed;
@@ -272,7 +267,9 @@ module.exports = {
                 layer = 13;
             }
 
-            animeData.genre = Array.isArray(animeData.genre) ? animeData.genre : [];
+            // Ensure genre is an array
+            if (!animeData.genre) animeData.genre = [];
+            if (!Array.isArray(animeData.genre)) animeData.genre = [animeData.genre];
 
             const renderCaption = () => {
                 return `*${current.title}*\n${current.line.repeat(20)}\n\n📺 *Title:* ${animeData.title || "Unknown"}\n📅 *Year:* ${animeData.year || "Unknown"}\n📊 *Episodes:* ${animeData.eps || "Unknown"}\n⭐ *Rating:* ${animeData.rating || "N/A"}/10\n🎭 *Genre:* ${animeData.genre.join(", ") || "Unknown"}\n🎬 *Studio:* ${animeData.studio || "Unknown"}\n\n📝 *Synopsis:*\n${animeData.synopsis || "No description"}\n\n🌐 *Source:* ${source}\n⚙️ *Layer:* ${layer}/13\n\n${current.line.repeat(20)}\n\n⚡ Powered By ${ENV.BOT_NAME}\n_Use '${usedPrefix}as ${animeData.title} ai'_`;
@@ -286,13 +283,19 @@ module.exports = {
                 }
             } catch (err) {}
 
-            let finalPayload = animeData.image ? { image: { url: animeData.image }, caption: finalText, mentions: [userId] } : { text: finalText, mentions: [userId] };
+            let finalPayload;
+            if (animeData.image && typeof animeData.image === 'string' && animeData.image.startsWith('http')) {
+                finalPayload = { image: { url: animeData.image }, caption: finalText, mentions: [userId] };
+            } else {
+                finalPayload = { text: finalText, mentions: [userId] };
+            }
 
             await sock.sendMessage(chatId, finalPayload, { quoted: m });
             responseCache.set(query, finalPayload);
             await sock.sendMessage(chatId, { react: { text: "✅", key: m.key } });
 
         } catch (error) {
+            console.error("AnimeSearch Error:", error);
             try {
                 await sock.sendMessage(m.chat, { text: `⚠️ *VEX SEARCH EMERGENCY*\n\n☣️ System recovered from fatal crash.\n\nTry:\n.as Naruto\n.as One Piece\n.as random\n\n⚡ Engine stabilized successfully.` }, { quoted: m });
             } catch {}
@@ -300,6 +303,9 @@ module.exports = {
     }
 };
 
+// =========================
+// AI FALLBACK FUNCTIONS (KEEP ALL PROVIDERS)
+// =========================
 async function callAI(prompt, maxTokens = 400) {
     const models = [
         { name: 'GROQ', fn: callGroq },
