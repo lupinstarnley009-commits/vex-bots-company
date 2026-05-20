@@ -3,37 +3,25 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
 
-// ============================
-// VEX ADVANCED MENU SYSTEM
-// STABLE FOR BAILEYS ^6.7.16
-// ============================
+// ==============================
+//  VEX DYNAMIC MENU (NO BUTTONS)
+//  FRESH UNIQUE DESIGN
+// ==============================
 
-// Same image
 const MENU_IMAGE = "https://i.ibb.co/Myk40VZF/Chat-GPT-Image-May-10-2026-12-07-48-PM.png";
+const menuSessions = new Map();        // For category selection
+let commandCache = null;
+let cacheTimestamp = 0;
+const userCooldown = new Map();        // Prevent spam
 
-// Sessions
-const menuSessions = new Map();
-
-// Cache
-const commandCache = new Map();
-let cacheTime = 0;
-
-// Cooldown
-const userCooldown = new Map();
-
-// ============================
-// SAFE TEXT EXTRACTOR
-// ============================
-function getText(msg) {
+// Helper: extract text from message
+function getMessageText(msg) {
     try {
         return (
             msg?.message?.conversation ||
             msg?.message?.extendedTextMessage?.text ||
             msg?.message?.imageMessage?.caption ||
             msg?.message?.videoMessage?.caption ||
-            msg?.message?.buttonsResponseMessage?.selectedButtonId ||
-            msg?.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-            msg?.message?.templateButtonReplyMessage?.selectedId ||
             ""
         ).trim();
     } catch {
@@ -41,593 +29,230 @@ function getText(msg) {
     }
 }
 
-// ============================
-// SAFE REACT
-// ============================
+// Safe react
 async function safeReact(sock, chat, key, emoji) {
     try {
-        await sock.sendMessage(chat, {
-            react: {
-                text: emoji,
-                key
-            }
-        });
+        await sock.sendMessage(chat, { react: { text: emoji, key } });
     } catch {}
 }
 
-// ============================
-// LOAD COMMANDS
-// ============================
-function loadPlugins(pluginDir) {
-    try {
+// Load all plugins (with 15s cache)
+function loadAllCommands(pluginDir) {
+    const now = Date.now();
+    if (commandCache && (now - cacheTimestamp) < 15000) return commandCache;
 
-        // 15 seconds cache
-        if (Date.now() - cacheTime < 15000 && commandCache.has("data")) {
-            return commandCache.get("data");
-        }
-
-        const categories = new Map();
-        const files = fs.readdirSync(pluginDir);
-
-        let totalCommands = 0;
-
-        for (const file of files) {
-
-            if (!file.endsWith(".js")) continue;
-
-            try {
-
-                const pluginPath = path.join(pluginDir, file);
-
-                delete require.cache[require.resolve(pluginPath)];
-
-                const plugin = require(pluginPath);
-
-                if (!plugin || !plugin.command) continue;
-
-                const category = (plugin.category || "misc").toLowerCase();
-
-                if (!categories.has(category)) {
-                    categories.set(category, []);
-                }
-
-                categories.get(category).push({
-                    command: plugin.command,
-                    description: plugin.description || "No description"
-                });
-
-                totalCommands++;
-
-            } catch {}
-        }
-
-        const data = {
-            categories,
-            totalCommands,
-            sorted: Array.from(categories.keys()).sort()
-        };
-
-        commandCache.set("data", data);
-        cacheTime = Date.now();
-
-        return data;
-
-    } catch {
-        return {
-            categories: new Map(),
-            totalCommands: 0,
-            sorted: []
-        };
+    const categories = new Map();
+    let totalCommands = 0;
+    const files = fs.readdirSync(pluginDir);
+    for (const file of files) {
+        if (!file.endsWith(".js")) continue;
+        try {
+            const pluginPath = path.join(pluginDir, file);
+            delete require.cache[require.resolve(pluginPath)];
+            const plugin = require(pluginPath);
+            if (!plugin?.command) continue;
+            const cat = (plugin.category || "misc").toLowerCase();
+            if (!categories.has(cat)) categories.set(cat, []);
+            categories.get(cat).push({
+                cmd: plugin.command,
+                desc: plugin.description || "No description"
+            });
+            totalCommands++;
+        } catch {}
     }
+    const sortedCats = Array.from(categories.keys()).sort();
+    commandCache = { categories, totalCommands, sortedCats };
+    cacheTimestamp = now;
+    return commandCache;
 }
 
-// ============================
-// RANDOM SYSTEM STATS
-// ============================
-function generateStats() {
-
-    const ram = `${(Math.random() * 6 + 2).toFixed(1)}GB`;
-    const cpu = `${Math.floor(Math.random() * 60) + 20}%`;
-    const ping = `${Math.floor(Math.random() * 80) + 10}ms`;
-    const uptime = `${Math.floor(Math.random() * 24)}h ${Math.floor(Math.random() * 60)}m`;
-    const users = `${Math.floor(Math.random() * 9000) + 1000}`;
-    const battery = `${Math.floor(Math.random() * 60) + 40}%`;
-
-    return {
-        ram,
-        cpu,
-        ping,
-        uptime,
-        users,
-        battery
-    };
+// Get real system stats (no fake numbers)
+function getRealStats() {
+    const uptimeSeconds = process.uptime();
+    const days = Math.floor(uptimeSeconds / 86400);
+    const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+    const uptimeStr = days ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
+    const memUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+    return { uptime: uptimeStr, memory: `${memUsage} MB` };
 }
 
-// ============================
-// UI DESIGNS
-// ============================
-const DESIGNS = {
-
+// ==============================
+//  BRAND NEW STYLES (UNIQUE)
+// ==============================
+const STYLES = {
     harsh: {
-        react: "☣️",
-        emoji: "⚡",
-        buildHead: (user, totalCommands, totalCategories, stats) => `
-╭━━━〔 ☣️ VEX CORE ☣️ 〕━━━╮
-┃ 👤 USER: @${user}
-┃ ⚡ MODE: HARSH
-┃ 📦 COMMANDS: ${totalCommands}
-┃ 📂 CATEGORIES: ${totalCategories}
-┃ 💾 RAM: ${stats.ram}
-┃ 🧠 CPU: ${stats.cpu}
-┃ 🔋 BATTERY: ${stats.battery}
-┃ 📡 PING: ${stats.ping}
-┃ 🌐 USERS: ${stats.users}
-┃ ⏳ UPTIME: ${stats.uptime}
-╰━━━━━━━━━━━━━━━━━━━━╯
-`,
-        foot: `
-╭━━━━━━━━━━━━━━━━━━━━╮
-┃ ⚡ Use Buttons Below
-┃ 🔢 Or Reply Number
-┃ ⏰ Session: 60s
-╰━━━━━━━━━━━━━━━━━━━━╯
-`
+        react: "⚡",
+        head: (user, cmdCount, catCount, stats) =>
+`✦ 𝗩𝗘𝗫 𝗛𝗔𝗥𝗦𝗛 𝗧𝗘𝗥𝗠𝗜𝗡𝗔𝗟 ✦
+──────────────────
+👤 𝗨𝘀𝗲𝗿 : @${user}
+⚙️ 𝗠𝗼𝗱𝗲 : 𝗛𝗮𝗿𝘀𝗵
+📦 𝗖𝗺𝗱𝘀 : ${cmdCount}
+🗂️ 𝗖𝗮𝘁𝘀 : ${catCount}
+⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲 : ${stats.uptime}
+💾 𝗠𝗲𝗺 : ${stats.memory}
+──────────────────`,
+        foot: `💡 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗰𝗮𝘁𝗲𝗴𝗼𝗿𝘆 𝗻𝘂𝗺𝗯𝗲𝗿 (𝟬𝟭, 𝟬𝟮...)`
     },
-
     normal: {
-        react: "📡",
-        emoji: "🚀",
-        buildHead: (user, totalCommands, totalCategories, stats) => `
-╭━━━〔 📋 VEX PANEL 📋 〕━━━╮
-┃ 👤 USER: @${user}
-┃ 🚀 STATUS: ONLINE
-┃ 📦 COMMANDS: ${totalCommands}
-┃ 📂 CATEGORIES: ${totalCategories}
-┃ 💾 MEMORY: ${stats.ram}
-┃ 🧠 CPU: ${stats.cpu}
-┃ 🔋 BATTERY: ${stats.battery}
-┃ 📡 LATENCY: ${stats.ping}
-┃ 🌐 USERS: ${stats.users}
-┃ ⏳ UPTIME: ${stats.uptime}
-╰━━━━━━━━━━━━━━━━━━━━╯
-`,
-        foot: `
-╭━━━━━━━━━━━━━━━━━━━━╮
-┃ 🔢 Reply Using Number
-┃ 📜 Example: 01
-┃ ⚡ Fast Navigation
-╰━━━━━━━━━━━━━━━━━━━━╯
-`
+        react: "🌟",
+        head: (user, cmdCount, catCount, stats) =>
+`✨ 𝗩𝗘𝗫 𝗖𝗢𝗠𝗠𝗔𝗡𝗗 𝗖𝗘𝗡𝗧𝗘𝗥 ✨
+───────────────────
+👤 𝗨𝘀𝗲𝗿 : @${user}
+🤖 𝗦𝘁𝗮𝘁𝘂𝘀 : 𝗔𝗰𝘁𝗶𝘃𝗲
+📚 𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 : ${cmdCount}
+📂 𝗖𝗮𝘁𝗲𝗴𝗼𝗿𝗶𝗲𝘀 : ${catCount}
+⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲 : ${stats.uptime}
+💾 𝗠𝗲𝗺𝗼𝗿𝘆 : ${stats.memory}
+───────────────────`,
+        foot: `📌 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗻𝘂𝗺𝗯𝗲𝗿 (𝗲.𝗴. 𝟬𝟯) 𝘁𝗼 𝗼𝗽𝗲𝗻`
     },
-
     girl: {
-        react: "💖",
-        emoji: "🌸",
-        buildHead: (user, totalCommands, totalCategories, stats) => `
-🌸 ╭━━〔 💖 VEX MENU 💖 〕━━╮
-💖 USER: @${user}
-✨ STATUS: CUTE MODE
-🌷 COMMANDS: ${totalCommands}
-🎀 CATEGORIES: ${totalCategories}
-💾 MEMORY: ${stats.ram}
-📡 SPEED: ${stats.ping}
-🔋 BATTERY: ${stats.battery}
-🌸 UPTIME: ${stats.uptime}
-╰━━━━━━━━━━━━━━━━━━━━╯
-`,
-        foot: `
-🎀 Tap Buttons Sweetie~
-🌷 Or Reply Number
-✨ Session Active
-`
+        react: "🌸",
+        head: (user, cmdCount, catCount, stats) =>
+`🌸 𝗩𝗘𝗫 𝗖𝗨𝗧𝗘 𝗠𝗘𝗡𝗨 🌸
+─────────────────
+👤 @${user}
+💖 𝗠𝗼𝗱𝗲 : 𝗚𝗶𝗿𝗹
+📖 𝗖𝗺𝗱𝘀 : ${cmdCount}
+🎀 𝗖𝗮𝘁𝘀 : ${catCount}
+🕰️ 𝗨𝗽 : ${stats.uptime}
+🍭 𝗥𝗔𝗠 : ${stats.memory}
+─────────────────`,
+        foot: `💬 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗻𝘂𝗺𝗯𝗲𝗿, 𝗯𝗮𝗯𝗲~`
     }
 };
 
-// ============================
-// EXPORT
-// ============================
 module.exports = {
-
     command: "menu",
+    alias: ["help", "cmds", "commands"],
     category: "system",
-    description: "Advanced categorized interface with buttons",
+    description: "Show command categories with dynamic selection (reply number)",
 
     async execute(m, sock, ctx) {
-
-        const {
-            args,
-            userSettings,
-            prefix
-        } = ctx;
-
+        const { args, userSettings, prefix } = ctx;
         const sender = m.sender.split("@")[0];
+        const chatId = m.chat;
+        const cooldownKey = `${chatId}_${m.sender}`;
 
-        // ============================
-        // COOLDOWN
-        // ============================
-        const cooldownKey = `${m.chat}_${m.sender}`;
-
+        // Cooldown (2.5s)
         if (userCooldown.has(cooldownKey)) {
             const diff = Date.now() - userCooldown.get(cooldownKey);
-
-            if (diff < 2500) {
-                return;
-            }
+            if (diff < 2500) return;
         }
-
         userCooldown.set(cooldownKey, Date.now());
 
-        // ============================
-        // SETTINGS
-        // ============================
-        const lang = (
-            args[0] &&
-            args[0].length === 2
-        ) ? args[0] : userSettings?.lang || "en";
-
+        const lang = (args[0]?.length === 2 ? args[0] : userSettings?.lang) || "en";
         const style = userSettings?.style || "normal";
-
         const pluginDir = path.join(__dirname, "../plugins");
 
-        // ============================
-        // LOAD PLUGINS
-        // ============================
-        const {
-            categories,
-            totalCommands,
-            sorted
-        } = loadPlugins(pluginDir);
+        const { categories, totalCommands, sortedCats } = loadAllCommands(pluginDir);
+        if (!sortedCats.length) return m.reply("⚠️ No categories found.");
 
-        if (!sorted.length) {
-            return m.reply("⚠️ No categories found");
-        }
+        const stats = getRealStats();
+        const ui = STYLES[style] || STYLES.normal;
+        await safeReact(sock, chatId, m.key, ui.react);
 
-        // ============================
-        // STATS
-        // ============================
-        const stats = generateStats();
-
-        // ============================
-        // UI
-        // ============================
-        const ui = DESIGNS[style] || DESIGNS.normal;
-
-        // ============================
-        // CATEGORY LIST
-        // ============================
-        let list = "";
-
-        sorted.forEach((cat, i) => {
-
-            const num = String(i + 1).padStart(2, "0");
-
-            const total = categories.get(cat)?.length || 0;
-
-            list += `│ ${num} ◈ ${cat.toUpperCase()} (${total})\n`;
+        // Build category list (fresh design)
+        let catList = "";
+        sortedCats.forEach((cat, idx) => {
+            const num = String(idx + 1).padStart(2, "0");
+            const cmdCount = categories.get(cat).length;
+            catList += `  ${num} › ${cat.toUpperCase()}  (${cmdCount} cmd)\n`;
         });
 
-        // ============================
-        // EXTRA FEATURES
-        // ============================
-        const tips = [
-            `${prefix}alive`,
-            `${prefix}allmenu`,
-            `${prefix}ping`,
-            `${prefix}owner`,
-            `${prefix}runtime`,
-            `${prefix}system`
-        ];
+        // Main menu content (no boxes, no special chars)
+        let menuText = `${ui.head(sender, totalCommands, sortedCats.length, stats)}\n\n📂 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦\n${catList}\n──────────────────\n${ui.foot}\n\n🌍 𝗣𝗿𝗲𝗳𝗶𝘅 : ${prefix}\n🔄 𝗦𝗲𝘀𝘀𝗶𝗼𝗻 : 60𝘀`;
 
-        const randomTip = tips[Math.floor(Math.random() * tips.length)];
-
-        const invisible = "\u200E".repeat(500);
-
-        let message = `
-${ui.buildHead(sender, totalCommands, sorted.length, stats)}
-
-╭━━━〔 📂 CATEGORY LIST 📂 〕━━━╮
-${list}╰━━━━━━━━━━━━━━━━━━━━╯
-
-${ui.foot}
-
-╭━━━〔 ${ui.emoji} QUICK ACCESS ${ui.emoji} 〕━━━╮
-┃ 🟢 Prefix: ${prefix}
-┃ 📌 Tip: ${randomTip}
-┃ ⚡ Stable Buttons
-┃ 🌍 Multi Language
-┃ 🔥 Fast Loading
-╰━━━━━━━━━━━━━━━━━━━━╯
-
-${invisible}
-`;
-
-        // ============================
-        // TRANSLATE
-        // ============================
+        // Translate if needed
         if (lang !== "en") {
             try {
-                message = (await translate(message, {
-                    to: lang
-                })).text;
+                const translated = await translate(menuText, { to: lang });
+                menuText = translated.text;
             } catch {}
         }
 
-        // ============================
-        // REACT
-        // ============================
-        await safeReact(sock, m.chat, m.key, ui.react);
-
-        // ============================
-        // IMAGE
-        // ============================
+        // Send image + caption
         let imageBuffer = null;
-
         try {
-
-            const response = await axios.get(MENU_IMAGE, {
-                responseType: "arraybuffer",
-                timeout: 15000,
-                headers: {
-                    "User-Agent": "Mozilla/5.0"
-                }
-            });
-
-            if (
-                response.headers["content-type"] &&
-                response.headers["content-type"].startsWith("image")
-            ) {
-                imageBuffer = Buffer.from(response.data);
-            }
-
+            const resp = await axios.get(MENU_IMAGE, { responseType: "arraybuffer", timeout: 10000 });
+            if (resp.headers["content-type"]?.startsWith("image")) imageBuffer = Buffer.from(resp.data);
         } catch {}
 
-        // ============================
-        // BUTTONS
-        // ============================
-        const buttons = [];
+        const sentMsg = await sock.sendMessage(chatId, {
+            image: imageBuffer || { url: MENU_IMAGE },
+            caption: menuText,
+            mentions: [m.sender]
+        }, { quoted: m });
 
-        // First 3 categories
-        sorted.slice(0, 3).forEach((cat, i) => {
-
-            buttons.push({
-                buttonId: `${i + 1}`,
-                buttonText: {
-                    displayText: `${String(i + 1).padStart(2, "0")} ${cat.toUpperCase()}`
-                },
-                type: 1
-            });
-        });
-
-        // Extra Buttons
-        buttons.push({
-            buttonId: `${prefix}allmenu`,
-            buttonText: {
-                displayText: "📜 ALLMENU"
-            },
-            type: 1
-        });
-
-        buttons.push({
-            buttonId: `${prefix}alive`,
-            buttonText: {
-                displayText: "⚡ ALIVE"
-            },
-            type: 1
-        });
-
-        // ============================
-        // SEND MENU
-        // ============================
-        let sent;
-
-        try {
-
-            sent = await sock.sendMessage(
-                m.chat,
-                {
-                    image: imageBuffer || {
-                        url: MENU_IMAGE
-                    },
-                    caption: message,
-                    mentions: [m.sender],
-                    footer: `VEX BOT • ${prefix}menu`,
-                    buttons,
-                    headerType: 4
-                },
-                {
-                    quoted: m
-                }
-            );
-
-        } catch {
-
-            // FALLBACK
-            sent = await sock.sendMessage(
-                m.chat,
-                {
-                    image: imageBuffer || {
-                        url: MENU_IMAGE
-                    },
-                    caption: message,
-                    mentions: [m.sender]
-                },
-                {
-                    quoted: m
-                }
-            );
-        }
-
-        // ============================
-        // SESSION SAVE
-        // ============================
-        const sessionId = `${m.chat}_${m.sender}`;
-
-        // clear old
-        if (menuSessions.has(sessionId)) {
-
-            try {
-                clearTimeout(menuSessions.get(sessionId).timeout);
-            } catch {}
-
-            menuSessions.delete(sessionId);
-        }
-
+        // Store session for reply handling
+        const sessionId = `${chatId}_${m.sender}`;
+        if (menuSessions.has(sessionId)) clearTimeout(menuSessions.get(sessionId).timeout);
         menuSessions.set(sessionId, {
-
-            categories: sorted,
-            commands: categories,
+            categories: sortedCats,
+            commandsMap: categories,
             lang,
             prefix,
-            pluginDir,
-            messageId: sent?.key?.id || null,
-            createdAt: Date.now(),
-
-            timeout: setTimeout(() => {
-
-                try {
-                    menuSessions.delete(sessionId);
-                } catch {}
-
-            }, 60000)
+            pluginDir,   // not used further but kept
+            msgId: sentMsg.key?.id,
+            timeout: setTimeout(() => menuSessions.delete(sessionId), 60000)
         });
     }
 };
 
-// ============================
-// GLOBAL LISTENER
-// ============================
+// ==============================
+//  GLOBAL LISTENER (handles replies)
+// ==============================
 module.exports.listener = async (sock) => {
-
     sock.ev.on("messages.upsert", async ({ messages }) => {
-
         try {
-
-            const msg = messages?.[0];
-
-            if (!msg || !msg.message || msg.key.fromMe) return;
+            const msg = messages[0];
+            if (!msg?.message || msg.key.fromMe) return;
 
             const from = msg.key.remoteJid;
             const sender = msg.key.participant || from;
-
             const sessionId = `${from}_${sender}`;
-
-            if (!menuSessions.has(sessionId)) return;
-
             const session = menuSessions.get(sessionId);
+            if (!session) return;
 
-            // ============================
-            // INPUT
-            // ============================
-            let input = getText(msg);
-
+            let input = getMessageText(msg);
             if (!input) return;
 
-            input = input.trim();
+            // Extract number: supports "03", "3", "menu 3", "menu_03"
+            let numMatch = input.match(/\b(\d{1,2})\b/);
+            if (!numMatch) return;
+            const catIndex = parseInt(numMatch[1]) - 1;
+            if (isNaN(catIndex) || catIndex < 0 || catIndex >= session.categories.length) return;
 
-            // ============================
-            // SUPPORT:
-            // 01
-            // 1
-            // menu_cat_1
-            // ============================
-            input = input
-                .replace("menu_cat_", "")
-                .replace(/[^\d]/g, "");
+            const selectedCat = session.categories[catIndex];
+            const commands = session.commandsMap.get(selectedCat) || [];
 
-            const index = parseInt(input);
-
-            if (
-                isNaN(index) ||
-                index < 1 ||
-                index > session.categories.length
-            ) {
-                return;
-            }
-
-            const chosen = session.categories[index - 1];
-
-            if (!chosen) return;
-
-            // ============================
-            // REACT
-            // ============================
-            await safeReact(sock, from, msg.key, "⚡");
-
-            // ============================
-            // CLEAR SESSION
-            // ============================
-            try {
-                clearTimeout(session.timeout);
-            } catch {}
-
-            menuSessions.delete(sessionId);
-
-            // ============================
-            // COMMANDS
-            // ============================
-            const commands = session.commands.get(chosen) || [];
-
-            // ============================
-            // STYLE
-            // ============================
-            let result = `
-╭━━━〔 📂 ${chosen.toUpperCase()} 📂 〕━━━╮
-
-`;
-
+            // Build command list (clean and simple)
+            let cmdList = `📁 *${selectedCat.toUpperCase()}*  (${commands.length} commands)\n────────────────\n`;
             commands.forEach((cmd, i) => {
-
-                result += `│ ${String(i + 1).padStart(2, "0")} ➤ ${session.prefix}${cmd.command}\n`;
-
-                if (cmd.description) {
-                    result += `│ 📝 ${cmd.description}\n`;
-                }
-
-                result += `│\n`;
+                const num = String(i + 1).padStart(2, "0");
+                cmdList += `${num} › ${session.prefix}${cmd.cmd}\n   ✦ ${cmd.desc}\n\n`;
             });
+            cmdList += `────────────────\n🔁 Reply with "menu" again for categories.`;
 
-            result += `
-╰━━━━━━━━━━━━━━━━━━━━╯
-
-⚡ Total Commands: ${commands.length}
-📡 VEX AI SYSTEM
-`;
-
-            // ============================
-            // TRANSLATE
-            // ============================
+            // Translate if needed
             if (session.lang !== "en") {
-
                 try {
-
-                    result = (
-                        await translate(result, {
-                            to: session.lang
-                        })
-                    ).text;
-
+                    const translated = await translate(cmdList, { to: session.lang });
+                    cmdList = translated.text;
                 } catch {}
             }
 
-            // ============================
-            // SEND
-            // ============================
-            await sock.sendMessage(
-                from,
-                {
-                    image: {
-                        url: MENU_IMAGE
-                    },
-                    caption: result
-                },
-                {
-                    quoted: msg
-                }
-            );
+            await safeReact(sock, from, msg.key, "📌");
+            await sock.sendMessage(from, { text: cmdList }, { quoted: msg });
 
+            // Clear session after use
+            clearTimeout(session.timeout);
+            menuSessions.delete(sessionId);
         } catch (err) {
-
-            console.error("MENU LISTENER ERROR:", err);
+            console.error("Menu Listener Error:", err);
         }
     });
 };
